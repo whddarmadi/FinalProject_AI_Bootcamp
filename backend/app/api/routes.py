@@ -52,8 +52,6 @@ def telegram_webhook(payload: dict):
 
     token = settings.TELEGRAM_TOKEN
 
-    print("TOKEN:", token)
-    print("CHAT ID:", chat_id)
 
     requests.post(
         f"https://api.telegram.org/bot{token}/sendMessage",
