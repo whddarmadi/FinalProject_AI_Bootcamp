@@ -2,7 +2,7 @@ import requests
 import os
 from fastapi import APIRouter
 from app.models.chat import ChatRequest
-from app.services.chat_service import process_message
+from app.services.chat_service import get_response
 from app.services.telegram_service import (send_telegram_message)
 from app.config.settings import settings
 
@@ -48,7 +48,7 @@ def telegram_webhook(payload: dict):
         "id"
     )
 
-    reply = process_message(message)
+    reply = get_response(message)
 
     token = settings.TELEGRAM_TOKEN
 
