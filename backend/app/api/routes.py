@@ -48,7 +48,7 @@ def telegram_webhook(payload: dict):
         "id"
     )
 
-    reply = f"Backend received: {message}"
+    reply = process_message(message)
 
     token = settings.TELEGRAM_TOKEN
 
