@@ -133,8 +133,8 @@ Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM
 
 ## 👤 Author
 
-**Wahid Setio Darmadi**
-NaLaPro — AI Bootcamp Batch 10
+**Wahid Setio Darmadi**\
+NaLaPro — AI Bootcamp Batch 10\
 Peran: Member 3 (M3) — Data Engineering
 
 ---
