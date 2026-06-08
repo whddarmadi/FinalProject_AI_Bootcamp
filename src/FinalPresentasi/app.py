@@ -1,8 +1,12 @@
 import os
+import time
 import streamlit as st
+from datetime import datetime
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from groq import Groq
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ============================================================
 # Konfigurasi Perusahaan
@@ -32,7 +36,39 @@ def load_resources():
     groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     return embedder, qdrant, groq_client
 
+@st.cache_resource
+def load_sheets():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(st.secrets["SPREADSHEET_ID_KELOMPOK"]).sheet1
+    return sheet
+
 embedder, qdrant, groq_client = load_resources()
+sheet = load_sheets()
+st.write(f"Sheet terhubung: {sheet.title}")
+
+# ============================================================
+# Fungsi Log ke Google Sheets
+# ============================================================
+def log_to_sheets(pertanyaan, jawaban, response_time):
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([
+            timestamp,
+            pertanyaan,
+            jawaban,
+            COMPANY_NAME,
+            f"{response_time:.2f}"
+        ])
+    except Exception as e:
+        st.warning(f"Log gagal: {e}")
 
 # ============================================================
 # Fungsi RAG Chat
@@ -56,6 +92,20 @@ def rag_chat(pertanyaan: str, top_k: int = 5):
                 "content": f"""Kamu adalah asisten onboarding karyawan baru di {COMPANY_NAME}.
 Jawab pertanyaan HANYA berdasarkan konteks dokumen internal perusahaan yang diberikan.
 Gunakan bahasa Indonesia yang ramah dan mudah dipahami.
+
+Kamu dapat menjawab pertanyaan seputar:
+- Profil, visi, misi, dan nilai-nilai perusahaan
+- Hak dan kewajiban karyawan
+- Peraturan dan kebijakan kerja
+- Jam kerja, shift, dan sistem absensi serta kode kehadiran
+- Benefit, santunan, dan kesejahteraan karyawan
+- Prosedur dan SOP operasional dapur
+- Standar kebersihan dan keselamatan dapur
+- Kebijakan halal dan standar bahan baku
+- Produk dan layanan perusahaan
+- Penanganan keluhan pelanggan
+- Pelaporan insiden dan form laporan harian
+
 Jika informasi tidak ada di konteks, katakan dengan jujur bahwa kamu tidak tahu."""
             },
             {
@@ -94,9 +144,15 @@ if pertanyaan := st.chat_input("Ketik pertanyaan kamu di sini..."):
     with st.chat_message("user"):
         st.markdown(pertanyaan)
 
-    # Generate jawaban
+    # Generate jawaban + hitung response time
     with st.chat_message("assistant"):
         with st.spinner("Mencari jawaban..."):
+            start_time = time.time()
             jawaban = rag_chat(pertanyaan)
+            response_time = time.time() - start_time
         st.markdown(jawaban)
+        st.caption(f"⏱️ {response_time:.2f} detik")
         st.session_state.messages.append({"role": "assistant", "content": jawaban})
+
+    # Log ke Google Sheets
+    log_to_sheets(pertanyaan, jawaban, response_time)
