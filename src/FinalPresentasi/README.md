@@ -1,6 +1,8 @@
 # 🤖 RAG Onboarding Chatbot — F&B Industry
 
-![Pipeline](assets/Pipeline_RAG_Final_Bootcamp.png)
+<p align="center">
+  <img src="assets/Pipeline_RAG_Final_Bootcamp.png" width="600"/>
+</p>
 
 > Final Project — AI Bootcamp NaLaPro Batch 10  
 > Retrieval-Augmented Generation (RAG) untuk onboarding karyawan baru di industri F&B
@@ -18,7 +20,7 @@ Chatbot live dan bisa diakses di:
 
 Chatbot berbasis RAG yang dirancang untuk membantu karyawan baru memahami dokumen internal perusahaan secara interaktif. Sistem ini memungkinkan pengguna mengajukan pertanyaan dalam bahasa natural dan mendapatkan jawaban yang relevan berdasarkan dokumen resmi perusahaan — tanpa perlu membaca seluruh dokumen secara manual.
 
-Proyek ini menggunakan tiga perusahaan F&B sebagai studi kasus, masing-masing dengan dataset dokumen internal yang terpisah.
+Proyek ini menggunakan **Katering Yeyeti** sebagai studi kasus, dengan dataset dokumen internal perusahaan.
 
 ---
 
@@ -26,11 +28,9 @@ Proyek ini menggunakan tiga perusahaan F&B sebagai studi kasus, masing-masing de
 
 | Perusahaan | Brand | Dokumen |
 |---|---|---|
-| PT Sumoda Tama Berkah | Susu Mbok Darmi | 11 PDF |
-| PT Sambal Cobek Indonesia | Pecel Lele Lala | 11 PDF |
 | Yeyeti Katering & Peyek Yeyeti | Katering Yeyeti | 11 PDF |
 
-**Total: 33 dokumen PDF · 103 halaman · 444 chunks**
+**Total: 11 dokumen PDF · 31 halaman · 145 chunks**
 
 ---
 
@@ -45,6 +45,7 @@ Proyek ini menggunakan tiga perusahaan F&B sebagai studi kasus, masing-masing de
 | Compute | Google Colab + T4 GPU |
 | Document Storage | Google Drive |
 | UI | Streamlit |
+| Chat Logging | Google Sheets API |
 | Evaluation | ROUGE Score |
 
 > Estimasi pemakaian: ~1.400 tokens per request (960 input + 396 output) dengan model LLaMA 3.1 8B Instant
@@ -57,6 +58,8 @@ Proyek ini menggunakan tiga perusahaan F&B sebagai studi kasus, masing-masing de
 PDF Dokumen → Chunking → Embedding → Qdrant Cloud
                                            ↓
 Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM → Jawaban
+                                                                              ↓
+                                                                    Log → Google Sheets
 ```
 
 1. **Load** — Dokumen PDF dibaca menggunakan PyMuPDF
@@ -65,6 +68,7 @@ Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM
 4. **Store** — Vektor disimpan permanen di Qdrant Cloud
 5. **Retrieve** — Pertanyaan user di-embed, lalu dicari chunk paling relevan via cosine similarity
 6. **Generate** — Context + pertanyaan dikirim ke Groq LLaMA 3.1 untuk menghasilkan jawaban
+7. **Log** — Setiap percakapan otomatis tercatat di Google Sheets (timestamp, pertanyaan, jawaban, perusahaan, response time)
 
 ---
 
@@ -73,9 +77,7 @@ Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM
 | Perusahaan | ROUGE-1 | ROUGE-2 | ROUGE-L |
 |---|---|---|---|
 | Katering Yeyeti | 0.1567 | 0.0415 | 0.1352 |
-| Pecel Lele Lala | 0.1227 | 0.0332 | 0.0945 |
-| Susu Mbok Darmi | 0.1817 | 0.0661 | 0.1541 |
-| **Rata-rata** | **0.1537** | **0.0469** | **0.1279** |
+| **Rata-rata** | **0.1567** | **0.0415** | **0.1352** |
 
 > Skor ROUGE pada sistem generative RAG di kisaran 0.10–0.20 termasuk wajar dan acceptable, karena jawaban yang dihasilkan bersifat parafrase — bukan reproduksi teks secara verbatim.
 
@@ -104,7 +106,34 @@ Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM
 ## 🗂️ Struktur Folder
 
 ```
-
+FinalProject_AI_Bootcamp/
+│
+├── src/
+│   ├── FinalPresentasi/
+│   │   ├── assets/
+│   │   │   └── Pipeline_RAG_Final_Bootcamp.png
+│   │   ├── notebooks/
+│   │   │   ├── RAG_kateringyeyeti.ipynb
+│   │   │   ├── RAG_pecellelelala.ipynb
+│   │   │   └── RAG_susumbokdarmi.ipynb
+│   │   ├── scripts/
+│   │   │   ├── rag_kateringyeyeti.py
+│   │   │   ├── rag_pecellelelala.py
+│   │   │   └── rag_susumbokdarmi.py
+│   │   ├── README.md
+│   │   ├── app.py
+│   │   ├── gitignore.txt
+│   │   └── requirements.txt
+│   │
+│   └── lab/
+│       ├── 01.Yasmin/
+│       ├── 02.Otra/backend/
+│       ├── 03.Wahid/
+│       ├── 04.Eko/
+│       └── 05.Idris/
+│
+├── .gitignore
+└── README.md
 ```
 
 ---
@@ -114,6 +143,7 @@ Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM
 ### Prasyarat
 - Akun Google (untuk Colab & Drive)
 - API Key: [Groq](https://console.groq.com) · [Qdrant Cloud](https://cloud.qdrant.io)
+- Service Account Google Cloud (untuk logging ke Google Sheets)
 
 ### Langkah-langkah
 
@@ -127,17 +157,39 @@ Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM
 5. **Run All** — pipeline akan berjalan otomatis dari load PDF hingga chatbot siap digunakan
 6. Gunakan **Cell Test** di bagian bawah notebook untuk mulai bertanya
 
+### Deploy Streamlit
+
+1. Push repo ke GitHub
+2. Buka [share.streamlit.io](https://share.streamlit.io)
+3. Connect ke repo, pilih `app.py` sebagai main file
+4. Tambahkan Secrets di Streamlit Cloud:
+   ```toml
+   GROQ_API_KEY = "..."
+   QDRANT_URL = "..."
+   QDRANT_API_KEY = "..."
+   SPREADSHEET_ID_KELOMPOK = "..."
+
+   [gcp_service_account]
+   type = "service_account"
+   project_id = "..."
+   private_key_id = "..."
+   private_key = "..."
+   client_email = "..."
+   client_id = "..."
+   ```
+
 ---
 
 ## 👤 Author
 
 **NaLaPro — AI Bootcamp NLP-B Batch 10**
-Wahid Setio Darmadi
-M. Dhimas Agung Sugiharto
-Yasmin Kamila
-Eko Erwis Wandoko
-Muh.idris  
+
+- Wahid Setio Darmadi
+- M. Dhimas Agung Sugiharto
+- Yasmin Kamila
+- Eko Erwis Wandoko
+- Muh. Idris
 
 ---
 
-*Built with Python · LangChain · Groq · Qdrant · Google Colab · Streamlit*
+*Built with Python · LangChain · Groq · Qdrant · Google Colab · Streamlit · Google Sheets*
