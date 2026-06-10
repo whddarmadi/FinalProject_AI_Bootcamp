@@ -71,17 +71,6 @@ Pertanyaan User → Embedding → Vector Search → Context + Pertanyaan → LLM
 
 ---
 
-## Hasil Evaluasi ROUGE Score
-
-| Perusahaan | ROUGE-1 | ROUGE-2 | ROUGE-L |
-|---|---|---|---|
-| Katering Yeyeti | 0.1567 | 0.0415 | 0.1352 |
-| **Rata-rata** | **0.1567** | **0.0415** | **0.1352** |
-
-> Skor ROUGE pada sistem generative RAG di kisaran 0.10–0.20 termasuk wajar dan acceptable, karena jawaban yang dihasilkan bersifat parafrase — bukan reproduksi teks secara verbatim.
-
----
-
 ## Limitasi & Rekomendasi
 
 **Limitasi:**
