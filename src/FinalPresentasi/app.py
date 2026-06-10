@@ -7,35 +7,36 @@ from groq import Groq
 import gspread
 from google.oauth2.service_account import Credentials
 
-
+# ============================================================
 # Konfigurasi
-
+# ============================================================
 COMPANY_NAME    = "Katering Yeyeti"
 COLLECTION_NAME = "katering_yeyeti"
 LLM_MODEL       = "llama-3.1-8b-instant"
 
-TOP_K               = 11
-TOP_K_MENU          = 16
-MAX_HISTORY_TURNS   = 6
-LOW_CONF_THRESHOLD  = 0.30
+TOP_K               = 11    # jumlah chunk default per query
+TOP_K_MENU          = 16    # chunk lebih banyak untuk pertanyaan menu (agar lengkap)
+MAX_HISTORY_TURNS   = 3     # jumlah pesan terakhir yang diingat (multi-turn memory)
+LOW_CONF_THRESHOLD  = 0.30  # ambang skor relevansi rendah (bisa di-tune)
 
+# Kata kunci yang memicu retrieval lebih banyak (agar menu terjelaskan lengkap)
 MENU_KEYWORDS = [
     "menu", "harga", "paket", "nasi box", "tumpeng", "liwet",
     "peyek", "pax", "pesan", "porsi", "varian", "rice bowl", "katalog"
 ]
 
-
+# ============================================================
 # Setup halaman
-
+# ============================================================
 st.set_page_config(
     page_title=f"Chatbot Onboarding — {COMPANY_NAME}",
-    page_icon="-",
+    page_icon="🤖",
     layout="centered"
 )
 
-
-# Load model & koneksi
-
+# ============================================================
+# Load model & koneksi (di-cache agar hanya dijalankan sekali)
+# ============================================================
 @st.cache_resource
 def load_resources():
     embedder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
@@ -63,9 +64,10 @@ def load_sheets():
 embedder, qdrant, groq_client = load_resources()
 sheet = load_sheets()
 
-
-# System Prompt
-
+# ============================================================
+# System Prompt — Advanced Anti-Hallucination
+# (memuat temuan dari sesi adversarial testing)
+# ============================================================
 SYSTEM_PROMPT = f"""Kamu adalah Asisten Onboarding karyawan baru di {COMPANY_NAME} & Peyek Yeyeti.
 Karaktermu: ramah, hangat, sabar, dan amanah. Tujuanmu membantu karyawan baru memahami perusahaan.
 
@@ -133,9 +135,9 @@ syar'i · SOP operasional dapur · Standar kebersihan & keselamatan · Kebijakan
 standar bahan baku · Produk/menu/layanan · Penanganan keluhan pelanggan · Pelaporan
 insiden & form laporan harian."""
 
-
+# ============================================================
 # Log ke Google Sheets
-
+# ============================================================
 def log_to_sheets(pertanyaan, jawaban, response_time, score):
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -150,12 +152,16 @@ def log_to_sheets(pertanyaan, jawaban, response_time, score):
     except Exception as e:
         st.warning(f"Log gagal: {e}")
 
+# ============================================================
 # Query Contextualization
-
+# Mengubah pertanyaan lanjutan (mis. "itu apa?") menjadi pertanyaan
+# mandiri berdasarkan riwayat, agar retrieval ke Qdrant lebih akurat.
+# ============================================================
 def contextualize_query(pertanyaan, history):
     if not history:
         return pertanyaan
 
+    # Ambil beberapa giliran terakhir sebagai konteks (dipangkas agar hemat token)
     recent = history[-4:]
     history_text = "\n".join(
         [f"{m['role']}: {m['content'][:250]}" for m in recent]
@@ -189,19 +195,26 @@ def contextualize_query(pertanyaan, history):
         rewritten = resp.choices[0].message.content.strip()
         return rewritten if rewritten else pertanyaan
     except Exception:
+        # Jika gagal, gunakan pertanyaan asli (aman)
         return pertanyaan
 
+# ============================================================
+# Pilih top_k secara dinamis (menu butuh lebih banyak chunk)
+# ============================================================
 def pilih_top_k(query: str) -> int:
     q = query.lower()
     if any(kw in q for kw in MENU_KEYWORDS):
         return TOP_K_MENU
     return TOP_K
 
+# ============================================================
 # RAG Chat dengan Multi-turn Memory
-
+# ============================================================
 def rag_chat(pertanyaan: str, history: list):
+    # 1. Ubah pertanyaan lanjutan menjadi pertanyaan mandiri untuk retrieval
     search_query = contextualize_query(pertanyaan, history)
 
+    # 2. Tentukan jumlah chunk & lakukan vector search
     top_k = pilih_top_k(search_query)
     query_vector = embedder.encode(search_query).tolist()
 
@@ -211,19 +224,24 @@ def rag_chat(pertanyaan: str, history: list):
         limit=top_k,
     ).points
 
+    # Skor relevansi = rata-rata cosine similarity chunk yang diambil
     avg_score = sum(r.score for r in results) / len(results) if results else 0
     context = "\n\n".join([r.payload["text"] for r in results])
 
+    # 3. Susun pesan: system prompt + memori percakapan + pertanyaan + konteks
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+    # Multi-turn memory: sertakan beberapa giliran terakhir
     for m in history[-MAX_HISTORY_TURNS:]:
         messages.append({"role": m["role"], "content": m["content"]})
 
+    # Pertanyaan saat ini + konteks dokumen yang relevan
     messages.append({
         "role": "user",
         "content": f"KONTEKS DOKUMEN:\n{context}\n\nPERTANYAAN:\n{pertanyaan}"
     })
 
+    # 4. Generate jawaban (temperature rendah agar lebih faktual)
     response = groq_client.chat.completions.create(
         model=LLM_MODEL,
         temperature=0.3,
@@ -231,32 +249,34 @@ def rag_chat(pertanyaan: str, history: list):
     )
     return response.choices[0].message.content, avg_score
 
-
+# ============================================================
 # Sidebar
-
+# ============================================================
 with st.sidebar:
-    st.header("ℹTentang Asisten")
+    st.header("ℹ️ Tentang Asisten")
     st.write(
         f"Asisten onboarding **{COMPANY_NAME}** berbasis RAG. "
         "Menjawab pertanyaan karyawan baru berdasarkan dokumen internal perusahaan."
     )
     st.divider()
     st.caption("Fitur aktif:")
-    st.caption(" Multi-turn memory (mengingat percakapan)")
-    st.caption(" Anti-halusinasi (guardrail dokumen)")
-    st.caption(" Penjelasan menu lengkap & detail")
+    st.caption("✅ Multi-turn memory (mengingat percakapan)")
+    st.caption("✅ Anti-halusinasi (guardrail dokumen)")
+    st.caption("✅ Penjelasan menu lengkap & detail")
     st.divider()
-    if st.button("Reset Percakapan", use_container_width=True):
+    if st.button("🔄 Reset Percakapan", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
+# ============================================================
 # UI Streamlit
-
-st.title("Chatbot Onboarding")
+# ============================================================
+st.title("🤖 Chatbot Onboarding")
 st.subheader(f"{COMPANY_NAME}")
 st.caption("Tanyakan apa saja tentang perusahaan, benefit, prosedur, dan kebijakan kerja.")
 st.divider()
 
+# Inisialisasi chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -270,17 +290,22 @@ if not st.session_state.messages:
         )
     })
 
+# Tampilkan chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+# Input pertanyaan
 if pertanyaan := st.chat_input("Ketik pertanyaan kamu di sini..."):
+    # Riwayat percakapan SEBELUM pertanyaan ini (untuk memory & contextualization)
     history = st.session_state.messages.copy()
 
+    # Tampilkan & simpan pertanyaan user
     st.session_state.messages.append({"role": "user", "content": pertanyaan})
     with st.chat_message("user"):
         st.markdown(pertanyaan)
 
+    # Generate jawaban + hitung waktu respons
     with st.chat_message("assistant"):
         with st.spinner("Mencari jawaban..."):
             start_time = time.time()
@@ -289,13 +314,14 @@ if pertanyaan := st.chat_input("Ketik pertanyaan kamu di sini..."):
 
         st.markdown(jawaban)
 
+        # Caption waktu + peringatan keyakinan rendah (jika skor relevansi rendah)
         if score < LOW_CONF_THRESHOLD:
             st.caption(
-                f" {response_time:.2f} detik · Keyakinan rendah — "
+                f"⏱️ {response_time:.2f} detik · ⚠️ Keyakinan rendah — "
                 "sebaiknya konfirmasi ke Ibu Titi atau Supervisor."
             )
         else:
-            st.caption(f" {response_time:.2f} detik")
+            st.caption(f"⏱️ {response_time:.2f} detik")
 
         st.session_state.messages.append({"role": "assistant", "content": jawaban})
 
