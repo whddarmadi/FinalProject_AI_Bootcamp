@@ -1,4 +1,3 @@
-import os
 import time
 import streamlit as st
 from datetime import datetime
@@ -8,24 +7,35 @@ from groq import Groq
 import gspread
 from google.oauth2.service_account import Credentials
 
-# ============================================================
-# Konfigurasi Perusahaan
-# ============================================================
+
+# Konfigurasi
+
 COMPANY_NAME    = "Katering Yeyeti"
 COLLECTION_NAME = "katering_yeyeti"
+LLM_MODEL       = "llama-3.1-8b-instant"
 
-# ============================================================
+TOP_K               = 11
+TOP_K_MENU          = 16
+MAX_HISTORY_TURNS   = 6
+LOW_CONF_THRESHOLD  = 0.30
+
+MENU_KEYWORDS = [
+    "menu", "harga", "paket", "nasi box", "tumpeng", "liwet",
+    "peyek", "pax", "pesan", "porsi", "varian", "rice bowl", "katalog"
+]
+
+
 # Setup halaman
-# ============================================================
+
 st.set_page_config(
     page_title=f"Chatbot Onboarding — {COMPANY_NAME}",
-    page_icon="🤖",
+    page_icon="-",
     layout="centered"
 )
 
-# ============================================================
+
 # Load model & koneksi
-# ============================================================
+
 @st.cache_resource
 def load_resources():
     embedder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
@@ -53,9 +63,79 @@ def load_sheets():
 embedder, qdrant, groq_client = load_resources()
 sheet = load_sheets()
 
-# ============================================================
-# Fungsi Log ke Google Sheets
-# ============================================================
+
+# System Prompt
+
+SYSTEM_PROMPT = f"""Kamu adalah Asisten Onboarding karyawan baru di {COMPANY_NAME} & Peyek Yeyeti.
+Karaktermu: ramah, hangat, sabar, dan amanah. Tujuanmu membantu karyawan baru memahami perusahaan.
+
+═══════════ ATURAN UTAMA (WAJIB DIPATUHI) ═══════════
+
+1. SUMBER JAWABAN
+   Jawab HANYA berdasarkan KONTEKS DOKUMEN yang diberikan di tiap pertanyaan.
+   DILARANG menambah informasi dari pengetahuan umum di luar dokumen.
+   Jika informasi tidak ada di konteks, katakan jujur dan jelas:
+   "Maaf, informasi tersebut tidak saya temukan di dokumen internal. Untuk kepastian,
+   silakan tanyakan langsung ke Ibu Titi atau Supervisor."
+   Jika memungkinkan, sebutkan nama dokumen sumber jawabanmu (mis. "Menurut Kebijakan
+   Kesejahteraan Karyawan...").
+
+2. SINGKATAN & ISTILAH — JANGAN MENGARANG
+   JANGAN PERNAH menebak atau mengarang kepanjangan singkatan yang tidak didefinisikan
+   secara eksplisit di konteks. Ini fatal, terutama pada hal-hal terkait kehalalan.
+   Jika sebuah singkatan tidak dijelaskan di konteks, jawab:
+   "Singkatan tersebut tidak dijelaskan rinci di dokumen. Silakan konfirmasi ke Ibu Titi
+   atau Supervisor."
+   Catatan: di dokumen Yeyeti, RPH = Rumah Potong Hewan. Gunakan HANYA kepanjangan resmi
+   ini; jangan pernah mengarang kepanjangan lain apa pun.
+
+3. FAKTA SPESIFIK (asal daerah, sejarah, sertifikasi, angka)
+   JANGAN mengklaim asal daerah suatu menu, fakta sejarah, atau detail sertifikasi
+   jika TIDAK disebutkan eksplisit di konteks.
+   Contoh: jangan klaim sebuah menu "khas Betawi/Jawa" hanya karena ada di kategori
+   tertentu. Jika asal daerah tidak disebut di dokumen, katakan tidak ada informasinya.
+   Jangan menyimpulkan asal daerah hanya dari nama bahan (mis. "teri Medan" bukan berarti
+   hidangannya berasal dari Medan).
+
+4. HAK & BENEFIT KARYAWAN — JELASKAN SELENGKAP MUNGKIN
+   Pertanyaan tentang hak, benefit, cuti, izin, santunan, atau "kelonggaran syar'i"
+   adalah PENTING bagi karyawan baru — ini hak mereka.
+   Gabungkan SEMUA informasi relevan dari konteks dan jelaskan lengkap. Jangan menjawab
+   "tidak tahu" jika ada petunjuk yang relevan.
+   Definisi: "kelonggaran syar'i" = izin kemanusiaan TANPA potong absensi, berlaku untuk
+   menjenguk/mengantar keluarga atau rekan kerja yang sakit, mengurus pemakaman, menikah,
+   hamil, melahirkan, dan menyusui.
+
+5. MENU & PRODUK — JELASKAN DETAIL, LENGKAP, TERSTRUKTUR
+   Saat ditanya tentang menu, sebutkan SELURUH menu yang ada di konteks — JANGAN hanya
+   sebagian. Susun rapi per kategori, contoh:
+   - Nasi Box Reguler (beserta isi & harga jika ada)
+   - Menu Istimewa Khas Betawi & Jawa
+   - Nasi Tumpeng & Nasi Liwet Tampah (beserta pilihan pax)
+   - Rice Bowl Nusantara
+   - Peyek Yeyeti
+   Sertakan harga, isi, dan minimum pax HANYA jika tertera di konteks.
+   JANGAN mengarang nama menu, harga, atau item yang tidak ada di konteks.
+
+6. KONSISTENSI ANTAR GILIRAN
+   Perhatikan riwayat percakapan. Jangan menyebut suatu istilah di satu giliran lalu
+   mengaku tidak mengenalnya di giliran berikutnya. Jika kamu sudah menyebut sesuatu,
+   jelaskan saat ditanya lanjutan.
+
+7. GAYA BAHASA
+   Bahasa Indonesia yang ramah, hangat, dan mudah dipahami semua kalangan.
+   Untuk daftar (menu, hak, prosedur), gunakan poin/penomoran agar rapi dan jelas.
+
+═══════════ CAKUPAN TOPIK ═══════════
+Profil/visi/misi/nilai · Hak & kewajiban karyawan · Peraturan & kebijakan kerja ·
+Jam kerja/shift/absensi & kode kehadiran · Benefit/santunan/kesejahteraan & kelonggaran
+syar'i · SOP operasional dapur · Standar kebersihan & keselamatan · Kebijakan halal &
+standar bahan baku · Produk/menu/layanan · Penanganan keluhan pelanggan · Pelaporan
+insiden & form laporan harian."""
+
+
+# Log ke Google Sheets
+
 def log_to_sheets(pertanyaan, jawaban, response_time, score):
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -70,92 +150,153 @@ def log_to_sheets(pertanyaan, jawaban, response_time, score):
     except Exception as e:
         st.warning(f"Log gagal: {e}")
 
-# ============================================================
-# Fungsi RAG Chat
-# ============================================================
-def rag_chat(pertanyaan: str, top_k: int = 11):
-    query_vector = embedder.encode(pertanyaan).tolist()
+# Query Contextualization
+
+def contextualize_query(pertanyaan, history):
+    if not history:
+        return pertanyaan
+
+    recent = history[-4:]
+    history_text = "\n".join(
+        [f"{m['role']}: {m['content'][:250]}" for m in recent]
+    )
+
+    try:
+        resp = groq_client.chat.completions.create(
+            model=LLM_MODEL,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Tugasmu: tulis ulang PERTANYAAN TERAKHIR user menjadi satu "
+                        "pertanyaan mandiri yang lengkap, berdasarkan riwayat percakapan, "
+                        "agar bisa dicari di basis dokumen. Jika pertanyaan sudah mandiri, "
+                        "kembalikan apa adanya. Jawab HANYA dengan pertanyaan hasil tulis "
+                        "ulang, tanpa penjelasan atau tanda kutip."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Riwayat percakapan:\n{history_text}\n\n"
+                        f"Pertanyaan terakhir: {pertanyaan}\n\n"
+                        f"Pertanyaan mandiri:"
+                    )
+                }
+            ]
+        )
+        rewritten = resp.choices[0].message.content.strip()
+        return rewritten if rewritten else pertanyaan
+    except Exception:
+        return pertanyaan
+
+def pilih_top_k(query: str) -> int:
+    q = query.lower()
+    if any(kw in q for kw in MENU_KEYWORDS):
+        return TOP_K_MENU
+    return TOP_K
+
+# RAG Chat dengan Multi-turn Memory
+
+def rag_chat(pertanyaan: str, history: list):
+    search_query = contextualize_query(pertanyaan, history)
+
+    top_k = pilih_top_k(search_query)
+    query_vector = embedder.encode(search_query).tolist()
 
     results = qdrant.query_points(
         collection_name=COLLECTION_NAME,
         query=query_vector,
         limit=top_k,
-#        with_score=True,
     ).points
 
-    # Ambil rata-rata skor sebagai representasi relevansi dokumen
     avg_score = sum(r.score for r in results) / len(results) if results else 0
-
     context = "\n\n".join([r.payload["text"] for r in results])
 
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    for m in history[-MAX_HISTORY_TURNS:]:
+        messages.append({"role": m["role"], "content": m["content"]})
+
+    messages.append({
+        "role": "user",
+        "content": f"KONTEKS DOKUMEN:\n{context}\n\nPERTANYAAN:\n{pertanyaan}"
+    })
+
     response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {
-                "role": "system",
-                "content": f"""Kamu adalah asisten onboarding karyawan baru di {COMPANY_NAME}.
-Jawab pertanyaan HANYA berdasarkan konteks dokumen internal perusahaan yang diberikan.
-Gunakan bahasa Indonesia yang ramah dan mudah dipahami.
-
-Kamu dapat menjawab pertanyaan seputar:
-- Profil, visi, misi, dan nilai-nilai perusahaan
-- Hak dan kewajiban karyawan
-- Peraturan dan kebijakan kerja
-- Jam kerja, shift, dan sistem absensi serta kode kehadiran
-- Benefit, santunan, dan kesejahteraan karyawan
-- Prosedur dan SOP operasional dapur
-- Standar kebersihan dan keselamatan dapur
-- Kebijakan halal dan standar bahan baku
-- Produk dan layanan perusahaan
-- Penanganan keluhan pelanggan
-- Pelaporan insiden dan form laporan harian
-
-Jika informasi tidak ada di konteks, katakan dengan jujur bahwa kamu tidak tahu."""
-            },
-            {
-                "role": "user",
-                "content": f"KONTEKS:\n{context}\n\nPERTANYAAN:\n{pertanyaan}"
-            }
-        ]
+        model=LLM_MODEL,
+        temperature=0.3,
+        messages=messages
     )
     return response.choices[0].message.content, avg_score
 
-# ============================================================
+
+# Sidebar
+
+with st.sidebar:
+    st.header("ℹTentang Asisten")
+    st.write(
+        f"Asisten onboarding **{COMPANY_NAME}** berbasis RAG. "
+        "Menjawab pertanyaan karyawan baru berdasarkan dokumen internal perusahaan."
+    )
+    st.divider()
+    st.caption("Fitur aktif:")
+    st.caption(" Multi-turn memory (mengingat percakapan)")
+    st.caption(" Anti-halusinasi (guardrail dokumen)")
+    st.caption(" Penjelasan menu lengkap & detail")
+    st.divider()
+    if st.button("Reset Percakapan", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+
 # UI Streamlit
-# ============================================================
-st.title("🤖 Chatbot Onboarding")
+
+st.title("Chatbot Onboarding")
 st.subheader(f"{COMPANY_NAME}")
 st.caption("Tanyakan apa saja tentang perusahaan, benefit, prosedur, dan kebijakan kerja.")
 st.divider()
 
-# Chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if not st.session_state.messages:
     st.session_state.messages.append({
         "role": "assistant",
-        "content": f"Halo! Saya asisten setia, ramah, dan amanah perwakilan {COMPANY_NAME}. Ada yang bisa saya bantu?"
+        "content": (
+            f"Halo! Saya asisten onboarding {COMPANY_NAME} yang ramah dan amanah. 😊 "
+            "Silakan tanyakan apa saja seputar perusahaan — mulai dari hak karyawan, "
+            "jam kerja, SOP, kebijakan halal, hingga menu dan produk kami."
+        )
     })
 
-# Tampilkan chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Input pertanyaan
 if pertanyaan := st.chat_input("Ketik pertanyaan kamu di sini..."):
-    # Tampilkan pertanyaan user
+    history = st.session_state.messages.copy()
+
     st.session_state.messages.append({"role": "user", "content": pertanyaan})
     with st.chat_message("user"):
         st.markdown(pertanyaan)
 
-    # Generate jawaban + hitung response time
     with st.chat_message("assistant"):
         with st.spinner("Mencari jawaban..."):
             start_time = time.time()
-            jawaban, score = rag_chat(pertanyaan)
+            jawaban, score = rag_chat(pertanyaan, history)
             response_time = time.time() - start_time
+
         st.markdown(jawaban)
-        st.caption(f"⏱️ {response_time:.2f} detik")
+
+        if score < LOW_CONF_THRESHOLD:
+            st.caption(
+                f" {response_time:.2f} detik · Keyakinan rendah — "
+                "sebaiknya konfirmasi ke Ibu Titi atau Supervisor."
+            )
+        else:
+            st.caption(f" {response_time:.2f} detik")
+
         st.session_state.messages.append({"role": "assistant", "content": jawaban})
 
     # Log ke Google Sheets
