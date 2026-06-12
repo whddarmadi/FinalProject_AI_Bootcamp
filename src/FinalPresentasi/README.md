@@ -166,12 +166,11 @@ FinalProject_AI_Bootcamp/
 
 ## Author
 
-**NaLaPro AI Bootcamp NLP-B Batch 10**
-
-- Wahid Setio Darmadi
-- M. Dhimas Agung Sugiharto
-- Yasmin Kamila
-- Eko Erwis Wandoko
+## Anggota Tim NLP - B - NaLaPro
+- [Wahid Setio Darmadi](https://github.com/whddarmadi)
+- [M. Dhimas Agung Sugiharto](https://github.com/otrahigus)
+- [Yasmin Kamila](https://github.com/yasminkamila)
+- [Eko Erwis Wandoko](https://github.com/ekoerwis)
 
 ---
 
