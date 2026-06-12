@@ -172,7 +172,6 @@ FinalProject_AI_Bootcamp/
 - M. Dhimas Agung Sugiharto
 - Yasmin Kamila
 - Eko Erwis Wandoko
-- Muh. Idris
 
 ---
 
