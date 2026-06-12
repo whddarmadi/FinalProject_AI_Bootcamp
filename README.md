@@ -17,4 +17,3 @@ Untuk detail Struktur Pipeline dan teknis lainnya silakan lihat di README FinalP
 - M. Dhimas Agung Sugiharto
 - Yasmin Kamila
 - Eko Erwis Wandoko
-- Muh. Idris
